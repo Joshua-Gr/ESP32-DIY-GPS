@@ -1,2 +1,11 @@
+# PlatformIO
 .pio
 .vscode/
+
+# KiCad local history, backups, locks and caches
+.history/
+*-backups/
+*.lck
+fp-info-cache
+_autosave-*
+*.kicad_prl
