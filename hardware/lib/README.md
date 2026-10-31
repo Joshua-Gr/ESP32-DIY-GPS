@@ -21,6 +21,8 @@ outside this directory are not bound by CC-BY-SA.
 | `esp32-diy-gps.kicad_sym` | `NEO-M8N`, `NEO-M9N`, `RPMH3.3-1.5` symbols | [KiCad symbols](https://gitlab.com/kicad/libraries/kicad-symbols) 10.0.7 |
 | `esp32-diy-gps.pretty/ublox_NEO.kicad_mod` | footprint | [KiCad footprints](https://gitlab.com/kicad/libraries/kicad-footprints) 10.0.7 |
 | `esp32-diy-gps.pretty/Converter_DCDC_RECOM_RPMx.x-x.0.kicad_mod` | footprint | KiCad footprints 10.0.7 |
+| `esp32-diy-gps.pretty/SMA_Wurth_60312102114405_Vertical.kicad_mod` | footprint | KiCad footprints 10.0.7 |
+| `esp32-diy-gps.pretty/Infineon_TSLP-2-20.kicad_mod` | footprint | Drawn for this project from the Infineon ESD103-B1-02 datasheet (rev 1.3, figure 14) |
 
 `NEO-M8N` is included only because the `NEO-M9N` symbol inherits from it.
 
@@ -31,4 +33,8 @@ outside this directory are not bound by CC-BY-SA.
 - The `ESP32-S3-WROOM-1` footprint's 3D model path points to
   `${KIPRJMOD}/lib/3dmodels/` instead of the upstream install location.
 
-No geometry, pins or pads were changed.
+- The `SMA_Wurth_60312102114405_Vertical` footprint's two ground pads gained an
+  `F.Paste` layer; upstream defines them on copper and mask only, which leaves
+  them without solder paste in an assembly stencil.
+
+Apart from that, no geometry, pins or pads were changed.

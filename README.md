@@ -15,7 +15,7 @@ A GPS receiver board built around an ESP32-S3 and a u-blox GNSS module, powered 
 
 | Function | Part |
 |---|---|
-| MCU | Espressif ESP32-S3-WROOM-1-N16R8 |
+| MCU | Espressif ESP32-S3-WROOM-1-N16R2 (rated −40 to 85 °C ambient) |
 | GNSS | u-blox NEO-M9N, external active antenna via SMA |
 | Power | RECOM RPMH3.3-1.5, 5–60 V in, 3.3 V out |
 
