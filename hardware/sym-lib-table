@@ -1,0 +1,4 @@
+(sym_lib_table
+  (version 7)
+  (lib (name "esp32-diy-gps")(type "KiCad")(uri "${KIPRJMOD}/lib/esp32-diy-gps.kicad_sym")(options "")(descr "Project-local symbols"))
+)
