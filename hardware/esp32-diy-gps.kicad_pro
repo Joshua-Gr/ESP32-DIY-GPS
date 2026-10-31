@@ -60,9 +60,9 @@
           "hatch_smoothing_level": 0,
           "hatch_smoothing_value": 0.1,
           "hatch_thickness": 1.0,
-          "min_clearance": 0.5,
+          "min_clearance": 0.2,
           "min_island_area": 10.0,
-          "min_thickness": 0.25,
+          "min_thickness": 0.2,
           "pad_connection": 1,
           "remove_islands": 0,
           "thermal_relief_gap": 0.5,
@@ -76,7 +76,40 @@
           "width": 0.0
         }
       ],
-      "drc_exclusions": [],
+      "drc_exclusions": [
+        [
+          "hole_clearance|132550000|133670000|6d4a03ff-88ae-4d7d-bf77-e9341764a431|69798f8f-befd-4767-a834-5beb06520bf4",
+          ""
+        ],
+        [
+          "hole_clearance|132550000|133670000|76aca1bb-42b7-4911-9fca-e53e241e70ff|69798f8f-befd-4767-a834-5beb06520bf4",
+          ""
+        ],
+        [
+          "hole_clearance|138650000|133670000|a682af50-142d-4080-a696-de0e7f594b15|eb1e461d-ba41-4d23-9eee-d1d11024134c",
+          ""
+        ],
+        [
+          "hole_clearance|138650000|133670000|ed4518d5-f5ee-499d-8587-c886bee8ae29|eb1e461d-ba41-4d23-9eee-d1d11024134c",
+          ""
+        ],
+        [
+          "shorting_items|133200000|132820000|1866065f-6495-4498-ba4c-21ed5e185544|ab7f1bf1-f214-40f9-94cc-e948e695de76",
+          "VBUS unused, shared footprint pads"
+        ],
+        [
+          "shorting_items|138000000|132820000|58b8777d-7e3c-4368-b0ab-746504fa04ad|6047b9c8-edc7-4815-ba09-1534570e4722",
+          ""
+        ],
+        [
+          "solder_mask_bridge|133200000|132820000|1866065f-6495-4498-ba4c-21ed5e185544|ab7f1bf1-f214-40f9-94cc-e948e695de76",
+          ""
+        ],
+        [
+          "solder_mask_bridge|138000000|132820000|6047b9c8-edc7-4815-ba09-1534570e4722|58b8777d-7e3c-4368-b0ab-746504fa04ad",
+          ""
+        ]
+      ],
       "meta": {
         "version": 2
       },
@@ -540,9 +573,18 @@
       {
         "name": "Power",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
-        "priority": 0,
+        "priority": 1,
         "schematic_color": "rgba(0, 0, 0, 0.000)",
         "track_width": 0.6,
+        "tuning_profile": ""
+      },
+      {
+        "clearance": 0.2,
+        "name": "RF",
+        "pcb_color": "rgba(0, 0, 0, 0.000)",
+        "priority": 0,
+        "schematic_color": "rgba(0, 0, 0, 0.000)",
+        "track_width": 0.32,
         "tuning_profile": ""
       }
     ],
@@ -563,6 +605,10 @@
       {
         "netclass": "Power",
         "pattern": "+3V3"
+      },
+      {
+        "netclass": "RF",
+        "pattern": "/GNSS/GNSS_RF"
       }
     ]
   },
