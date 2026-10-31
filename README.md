@@ -26,3 +26,8 @@ cd firmware
 pio run            # build
 pio run -t upload  # flash
 ```
+
+## License
+
+Firmware: GPL-3.0-or-later. Hardware design: CERN-OHL-S-2.0. Third-party
+part library: CC-BY-SA-4.0. See [LICENSE.md](LICENSE.md).
