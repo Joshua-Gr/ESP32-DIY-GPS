@@ -12,3 +12,6 @@ _autosave-*
 
 # Generated fabrication outputs (Gerbers, drill, BOM, centroid)
 hardware/fabrication/
+
+# macOS
+.DS_Store
