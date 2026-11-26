@@ -1,235 +1,231 @@
-#include <HardwareSerial.h>
-#include <BluetoothSerial.h>
+// ESP32-DIY-GPS firmware: NEO-M9N GNSS bridged to USB and Bluetooth LE.
+//
+// At boot the NEO-M9N is configured (RAM layer only) for UART1 @ 115200, standard
+// NMEA output at NAV_RATE_HZ and UBX accepted in both directions. After that the
+// firmware is a transparent bridge:
+//   GNSS -> USB CDC serial and BLE Nordic UART Service (TX notify)
+//   USB CDC serial and BLE Nordic UART Service (RX write) -> GNSS
+// so NMEA consumers, gpsd and u-center can all talk to the receiver directly.
+// Diagnostics go to UART0 (debug header), never to the USB data stream.
+#include <Arduino.h>
+#include <NimBLEDevice.h>
 
-#define GPS_BAUDRATE 115200  // The default baudrate of most GPS modules is 9600
+#define GPS_RX 18
+#define GPS_TX 17
+#define GPS_BAUD 115200
+#ifndef NAV_RATE_HZ
+#define NAV_RATE_HZ 10   // NMEA at 115200 baud carries the default sentence set up to ~10 Hz
+#endif
 
-#define RXD2 16
-#define TXD2 17
+#define Log Serial0
 
-HardwareSerial gpsSerial(2);  // GPS module connected to Serial2
-BluetoothSerial SerialBT;
+static const char *NUS_SVC = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
+static const char *NUS_RX  = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E";
+static const char *NUS_TX  = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 
-/**
- * @brief Sends a UBX (u-blox) command to the GPS module.
- *
- * @param payload Pointer to the array containing the UBX command payload.
- *                The payload should not include the preamble bytes (0xB5, 0x62)
- *                and the checksum bytes (CK_A, CK_B) as they are added internally.
- *                The function automatically calculates and appends the checksum
- *                to the payload before sending it to the GPS module.
- * 
- * @param length  The length of the UBX command payload.
- * 
- * @note The UBX protocol requires a specific start sequence (preamble) and
- *       checksum bytes at the end of each command. This function handles the
- *       generation of the preamble and checksum, allowing the caller to provide
- *       only the essential payload. Including preamble and checksum in the payload
- *       is not necessary, as this function takes care of their generation.
- */
-void sendUBXCommand(const uint8_t *payload, size_t length) {
-  uint8_t ckA = 0, ckB = 0;
+NimBLECharacteristic *nusTx;
+volatile bool connected = false;
+volatile bool subscribed = false;
+volatile uint16_t peerMtu = 23;
 
-  // Calculate Fletcher checksum for payload
-  for (uint16_t i = 0; i < length; i++) {
-    ckA = (ckA + payload[i]) % 256;
-    ckB = (ckB + ckA) % 256;
-  }
-
-  // Start of UBX frame
-  gpsSerial.write(0xB5);
-  gpsSerial.write(0x62);
-
-  // Write payload to serial
-  for (size_t i = 0; i < length; i++) {
-    gpsSerial.write(payload[i]);
-  }
-
-  // Write checksum to serial
-  gpsSerial.write(ckA);
-  gpsSerial.write(ckB);
-
-  // Delay to ensure the GPS module processes the command
-  delay(100);
+// ---------------- UBX (boot-time configuration only) ----------------
+static void ubxSend(uint8_t cls, uint8_t id, const uint8_t *p, uint16_t n) {
+  uint8_t h[6] = {0xB5, 0x62, cls, id, (uint8_t)n, (uint8_t)(n >> 8)};
+  uint8_t a = 0, b = 0;
+  for (int i = 2; i < 6; i++) { a += h[i]; b += a; }
+  for (int i = 0; i < n; i++) { a += p[i]; b += a; }
+  Serial1.write(h, 6); Serial1.write(p, n); Serial1.write(a); Serial1.write(b);
 }
 
-/**
- * @brief Setup function to initialize the GPS module and configure its settings.
- *
- * @note Some fake GPS modules may encounter issues with the Battery-Backed RAM (BBR)
- *       and flash memory, causing settings to revert to their default after power loss
- *       (cold start). To address this, the GPS module is initially started at the default
- *       baud rate (9600 bps), and all necessary settings, including changing the baud rate
- *       to 115200 bps, are applied. Starting at 9600 bps ensures compatibility with modules
- *       that may have reset to their default settings. The change of baud rate to 115200 bps
- *       is done last to ensure that all other settings are successfully applied before the
- *       switch, as changing the baud rate interrupts communication until it matches on both ends.
- */
+struct Kv { uint32_t key; uint32_t val; uint8_t size; };
+static void valsetRam(const Kv *kv, int n) {
+  uint8_t p[128]; int len = 0;
+  p[len++] = 0; p[len++] = 0x01; p[len++] = 0; p[len++] = 0;   // version, layer=RAM
+  for (int i = 0; i < n; i++) {
+    memcpy(p + len, &kv[i].key, 4); len += 4;
+    memcpy(p + len, &kv[i].val, kv[i].size); len += kv[i].size;
+  }
+  ubxSend(0x06, 0x8A, p, len);
+}
+
+uint8_t ubx[512]; int ubxLen = 0;   // MON-VER replies are ~228 bytes
+int lastAck = -1;                   // 1 = ACK, 0 = NAK for CFG-VALSET
+bool monVerSeen = false;
+
+static void onUbx(uint8_t cls, uint8_t id, const uint8_t *p, uint16_t n) {
+  if (cls == 0x05 && n >= 2 && p[0] == 0x06 && p[1] == 0x8A) lastAck = id;   // 05 01 ACK, 05 00 NAK
+  else if (cls == 0x0A && id == 0x04) monVerSeen = true;
+}
+
+static void parseUbx() {
+  while (Serial1.available()) {
+    uint8_t c = Serial1.read();
+    if (ubxLen == 0 && c != 0xB5) continue;
+    if (ubxLen == 1 && c != 0x62) { ubxLen = 0; continue; }
+    ubx[ubxLen++] = c;
+    if (ubxLen >= 6) {
+      uint16_t n = ubx[4] | (ubx[5] << 8);
+      if (n + 8 > (int)sizeof ubx) { ubxLen = 0; continue; }
+      if (ubxLen == n + 8) {
+        uint8_t a = 0, b = 0;
+        for (int i = 2; i < n + 6; i++) { a += ubx[i]; b += a; }
+        if (a == ubx[n + 6] && b == ubx[n + 7]) onUbx(ubx[2], ubx[3], ubx + 6, n);
+        ubxLen = 0;
+      }
+    }
+  }
+}
+
+static bool waitFor(bool (*cond)(), uint32_t ms) {
+  uint32_t t = millis();
+  while (millis() - t < ms) { parseUbx(); if (cond()) return true; delay(1); }
+  return false;
+}
+static bool gotMonVer() { return monVerSeen; }
+static bool gotAck() { return lastAck >= 0; }
+
+static bool probe(uint32_t baud) {
+  Serial1.updateBaudRate(baud); delay(20); while (Serial1.available()) Serial1.read();
+  monVerSeen = false; ubxLen = 0;
+  ubxSend(0x0A, 0x04, nullptr, 0);   // poll MON-VER
+  return waitFor(gotMonVer, 600);
+}
+
+static bool configureGnss() {
+  Serial1.setRxBufferSize(4096);
+  Serial1.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
+  if (!probe(GPS_BAUD)) {
+    if (!probe(38400)) { Log.println("[GNSS] no reply at 115200 or 38400"); return false; }
+    Kv b[] = {{0x40520001, GPS_BAUD, 4}};   // CFG-UART1-BAUDRATE
+    valsetRam(b, 1); Serial1.flush(); delay(100);
+    if (!probe(GPS_BAUD)) { Log.println("[GNSS] baud switch failed"); return false; }
+  }
+  Log.printf("[GNSS] talking at %d baud\n", GPS_BAUD);
+  Kv cfg[] = {
+    {0x10740001, 1, 1},                 // CFG-UART1OUTPROT-UBX
+    {0x10740002, 1, 1},                 // CFG-UART1OUTPROT-NMEA
+    {0x10730001, 1, 1},                 // CFG-UART1INPROT-UBX
+    {0x10730002, 1, 1},                 // CFG-UART1INPROT-NMEA
+    {0x209100bb, 1, 1},                 // CFG-MSGOUT-NMEA_ID_GGA_UART1 every epoch
+    {0x209100ac, 1, 1},                 // CFG-MSGOUT-NMEA_ID_RMC_UART1 every epoch
+    {0x209100b1, 1, 1},                 // CFG-MSGOUT-NMEA_ID_VTG_UART1 every epoch
+    {0x209100c0, 1, 1},                 // CFG-MSGOUT-NMEA_ID_GSA_UART1 every epoch
+    {0x209100c5, NAV_RATE_HZ, 1},       // CFG-MSGOUT-NMEA_ID_GSV_UART1 once per second
+    {0x209100ca, 0, 1},                 // CFG-MSGOUT-NMEA_ID_GLL_UART1 off (duplicates GGA/RMC)
+    {0x30210001, 1000 / NAV_RATE_HZ, 2},// CFG-RATE-MEAS
+    {0x30210002, 1, 2},                 // CFG-RATE-NAV
+  };
+  lastAck = -1; valsetRam(cfg, sizeof cfg / sizeof cfg[0]);
+  bool ok = waitFor(gotAck, 1000) && lastAck == 1;
+  Log.printf("[GNSS] %d Hz NMEA config: %s\n", NAV_RATE_HZ, ok ? "ACK" : (lastAck == 0 ? "NAK" : "no reply"));
+  return ok;
+}
+
+// ---------------- BLE ----------------
+// Start the MTU exchange from the device so centrals that never request one still
+// get notifications larger than 20 bytes.
+static int onMtuExchanged(uint16_t, const struct ble_gatt_error *err, uint16_t mtu, void *) {
+  if (err->status == 0) { peerMtu = mtu; Log.printf("[BLE] MTU %u\n", mtu); }
+  else Log.printf("[BLE] MTU exchange failed: status %d\n", err->status);
+  return 0;
+}
+
+class ServerCb : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer *s, ble_gap_conn_desc *d) override {
+    connected = true;
+    s->updateConnParams(d->conn_handle, 6, 12, 0, 200);   // 7.5-15 ms interval
+    int rc = ble_gattc_exchange_mtu(d->conn_handle, onMtuExchanged, nullptr);
+    if (rc) Log.printf("[BLE] MTU exchange start failed: %d\n", rc);
+    Log.println("[BLE] connected");
+  }
+  void onDisconnect(NimBLEServer *) override {
+    connected = false; subscribed = false; peerMtu = 23;
+    Log.println("[BLE] disconnected, advertising again");
+    NimBLEDevice::startAdvertising();
+  }
+  void onMTUChange(uint16_t mtu, ble_gap_conn_desc *) override { peerMtu = mtu; Log.printf("[BLE] MTU %u\n", mtu); }
+};
+
+class TxCb : public NimBLECharacteristicCallbacks {
+  void onSubscribe(NimBLECharacteristic *, ble_gap_conn_desc *, uint16_t v) override {
+    subscribed = v;
+    Log.printf("[BLE] TX %s\n", v ? "subscribed" : "unsubscribed");
+  }
+};
+
+class RxCb : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic *c) override {
+    std::string v = c->getValue();
+    Serial1.write((const uint8_t *)v.data(), v.size());
+  }
+};
+
+static void startBle() {
+  char name[32]; uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_BT);
+  snprintf(name, sizeof name, "ESP32-DIY-GPS-%02X%02X", mac[4], mac[5]);
+  NimBLEDevice::init(name);
+  NimBLEDevice::setMTU(185);
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9);
+  NimBLEServer *srv = NimBLEDevice::createServer();
+  srv->setCallbacks(new ServerCb());
+
+  static TxCb txCb;
+  static RxCb rxCb;
+  NimBLEService *nus = srv->createService(NUS_SVC);
+  nusTx = nus->createCharacteristic(NUS_TX, NIMBLE_PROPERTY::NOTIFY);
+  nusTx->setCallbacks(&txCb);
+  nus->createCharacteristic(NUS_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR)->setCallbacks(&rxCb);
+  nus->start();
+
+  NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+  adv->addServiceUUID(NUS_SVC);
+  adv->setScanResponse(true);
+  adv->start();
+  Log.printf("[BLE] advertising as %s\n", name);
+}
+
+// ---------------- bridge ----------------
+uint8_t bleBuf[182]; size_t bleLen = 0; uint32_t bleLastByte = 0;
+
+static void bleFlush() {
+  if (bleLen && connected && subscribed) { nusTx->setValue(bleBuf, bleLen); nusTx->notify(); }
+  bleLen = 0;
+}
+
+static void bridge() {
+  uint8_t buf[256];
+  size_t n = Serial1.read(buf, min<size_t>(Serial1.available(), sizeof buf));
+  if (n) {
+    if (Serial) Serial.write(buf, min<size_t>(n, Serial.availableForWrite()));   // drop rather than block
+    size_t chunk = min<size_t>(peerMtu - 3, sizeof bleBuf);
+    for (size_t i = 0; i < n; i++) {
+      bleBuf[bleLen++] = buf[i];
+      if (bleLen >= chunk || buf[i] == '\n') bleFlush();
+    }
+    bleLastByte = millis();
+  } else if (bleLen && millis() - bleLastByte > 10) {
+    bleFlush();   // UBX frames have no line ending
+  }
+  while (Serial.available()) Serial1.write(Serial.read());
+}
+
+// ---------------- main ----------------
+uint32_t lastStat = 0;
+
 void setup() {
-  Serial.begin(GPS_BAUDRATE);
-  gpsSerial.begin(38400);  // Set the default baud rate
-  SerialBT.begin("ESP32_GPS_Proxy");  // Set default Bluetooth device name
-
-  String macAddress = SerialBT.getBtAddressString();
-  String UID = macAddress.substring(9, 11) + macAddress.substring(12, 14) + macAddress.substring(15, 17);
-
-  SerialBT.begin("GPS-" + UID);
-
-  // Configure GNSS settings
-  uint8_t CFG_GNSS[][40] = {
-    //{0x06, 0x3E, 0x24, 0x00, 0x00, 0x16, 0x05, 0x04, 0x00, 0x04, 0x05, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-    {0x06, 0x3E, 0x24, 0x00, 0x00, 0x16, 0x16, 0x04, 0x00, 0x08, 0x10, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x01, 0x06, 0x00, 0x01, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_GNSS) / sizeof(CFG_GNSS[0])); i++) {
-    sendUBXCommand(CFG_GNSS[i], sizeof(CFG_GNSS[0]));
-  }
-
-  // Configure NMEA message output
-  uint8_t CFG_MSG[][12] = {
-    {0x06, 0x01, 0x08, 0x00, 0x0B, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0B, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0B, 0x33, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0B, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0B, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x21, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0A, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x31, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x30, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x21, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x01, 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x02, 0x20, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0D, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0D, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0x0D, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x04, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF0, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF1, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x01, 0x08, 0x00, 0xF1, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_MSG) / sizeof(CFG_MSG[0])); i++) {
-    sendUBXCommand(CFG_MSG[i], sizeof(CFG_MSG[0]));
-  }
-
-  // Configure NMEA settings
-  uint8_t CFG_NMEA[][16] = {
-    {0x06, 0x17, 0x0C, 0x00, 0x00, 0x21, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00},
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_NMEA) / sizeof(CFG_NMEA[0])); i++) {
-    sendUBXCommand(CFG_NMEA[i], sizeof(CFG_NMEA[0]));
-  }
-
-  // Configure NAV5 settings
-  uint8_t CFG_NAV5[][40] = {
-    {0x06, 0x24, 0x24, 0x00, 0xFF, 0xFF, 0x04, 0x03, 0x00, 0x00, 0x00, 0x00, 0x10, 0x27, 0x00, 0x00, 0x05, 0x00, 0xFA, 0x00, 0xFA, 0x00, 0x64, 0x00, 0x2C, 0x01, 0x00, 0x3C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_NAV5) / sizeof(CFG_NAV5[0])); i++) {
-    sendUBXCommand(CFG_NAV5[i], sizeof(CFG_NAV5[0]));
-  }  
-
-  // Configure NAV5X settings
-  uint8_t CFG_NAV5X[][44] = {
-    {0x06, 0x23, 0x28, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x4F, 0x00, 0x00, 0x00, 0x03, 0x02, 0x03, 0x16, 0x07, 0x00, 0x00, 0x01, 0x00, 0x00, 0x9B, 0x06, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x01, 0x00, 0x64, 0x64, 0x00, 0x00, 0x01, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_NAV5X) / sizeof(CFG_NAV5X[0])); i++) {
-    sendUBXCommand(CFG_NAV5X[i], sizeof(CFG_NAV5X[0]));
-  }  
-
-  // Configure VFG_ITFM settings
-  uint8_t CFG_ITFM[][12] = {
-    {0x06, 0x39, 0x08, 0x00, 0xF3, 0xAC, 0x62, 0xAD, 0x1E, 0x63, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_ITFM) / sizeof(CFG_ITFM[0])); i++) {
-    sendUBXCommand(CFG_ITFM[i], sizeof(CFG_ITFM[0]));
-  }  
-
-  // Configure rate settings to 18HZ
-  uint8_t CFG_RATE[][10] = {
-    {0x06, 0x08, 0x06, 0x00, 0x32, 0x00, 0x01, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_RATE) / sizeof(CFG_RATE[0])); i++) {
-    sendUBXCommand(CFG_RATE[i], sizeof(CFG_RATE[0]));
-  }
-
-  // Configure SBAS settings
-  uint8_t CFG_SBAS[][12] = {
-    {0x06, 0x16, 0x08, 0x00, 0x01, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_SBAS) / sizeof(CFG_SBAS[0])); i++) {
-    sendUBXCommand(CFG_SBAS[i], sizeof(CFG_SBAS[0]));
-  }
-
-  // Change baud rate to 115200 bps (must be the last setting applied)
-  uint8_t CFG_PRT[][24] = {
-    {0x06, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x84, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x00, 0x14, 0x00, 0x02, 0x00, 0x00, 0x00, 0xC0, 0x38, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x00, 0x14, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x00, 0x14, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00},
-    {0x06, 0x00, 0x14, 0x00, 0x01, 0x00, 0x00, 0x00, 0xC0, 0x08, 0x00, 0x00, 0x00, 0xC2, 0x01, 0x00, 0x03, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00}
-  };
-
-  for (size_t i = 0; i < (sizeof(CFG_PRT) / sizeof(CFG_PRT[0])); i++) {
-    sendUBXCommand(CFG_PRT[i], sizeof(CFG_PRT[0]));
-  }
-
-  // Change GPS baud rate to 115200 bps
-  gpsSerial.begin(GPS_BAUDRATE);
+  Log.begin(115200);
+  Serial.begin(115200);
+  Serial.setTxTimeoutMs(0);
+  Log.println("\n===== ESP32-DIY-GPS: GNSS bridge (USB + BLE) =====");
+  configureGnss();
+  startBle();
 }
 
 void loop() {
-  // Read data from the GPS module and transmit it over Bluetooth and Serial
-  if (gpsSerial.available() > 0) {
-    char gpsData = gpsSerial.read();
-    SerialBT.write(gpsData);  // Transmit GPS data over Bluetooth
-    Serial.write(gpsData); // Transmit GPS data over Serial
-  }
-
-  // Read data from Bluetooth and transmit it to the GPS module and Serial
-  if (SerialBT.available() > 0) {
-    char btData = SerialBT.read();
-    gpsSerial.write(btData);
-    Serial.write(btData);
-  }
-
-  // Read data from Serial and transmit it to the GPS module and Bluetooth
-  if(Serial.available() > 0) {
-    char sData = Serial.read();
-    gpsSerial.write(sData);
-    SerialBT.write(sData);
+  bridge();
+  if (millis() - lastStat >= 5000) {
+    lastStat = millis();
+    Log.printf("[STAT] usb=%s ble=%s mtu=%u\n", Serial ? "open" : "closed",
+      connected ? (subscribed ? "streaming" : "connected") : "advertising", peerMtu);
   }
 }

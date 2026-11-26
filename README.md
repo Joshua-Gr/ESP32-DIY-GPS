@@ -35,6 +35,20 @@ The schematic is split into sheets, each laid out in numbered blocks with design
 
 ## Firmware
 
+The ESP32 bridges the GNSS receiver to USB and Bluetooth LE. At boot it sets the
+NEO-M9N to 115200 baud and 10 Hz NMEA output (GGA, RMC, VTG, GSA every fix, GSV once
+per second); after that every byte from the receiver is forwarded unchanged.
+
+| Interface | Direction | Use |
+|---|---|---|
+| USB-C (CDC serial) | both | NMEA stream, gpsd, u-center (UBX passes through) |
+| BLE Nordic UART Service, advertised as `ESP32-DIY-GPS-XXXX` | TX notify / RX write | NMEA to BLE GNSS apps, UBX commands back to the receiver |
+| Debug header (UART0, 115200) | out | Boot and status log |
+
+The board must be powered from the 12 V input; USB-C carries data only. Change the
+rate with `-DNAV_RATE_HZ=<n>` in `build_flags`; above 10 Hz, reduce the NMEA sentence
+set or switch to UBX output to stay within the serial bandwidth.
+
 ```sh
 cd firmware
 pio run            # build
