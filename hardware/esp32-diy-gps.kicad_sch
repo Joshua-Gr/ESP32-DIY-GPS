@@ -3,11 +3,16 @@
 	(generator "eeschema")
 	(generator_version "10.0")
 	(uuid "05dd790d-d06d-4f4a-bcbd-4c1adf6d2610")
-	(paper "A4")
+	(paper "A3")
+	(title_block
+		(title "ESP32-DIY-GPS")
+		(date "2026-11-02")
+		(comment 1 "Top level: block diagram and sheet index")
+	)
 	(lib_symbols)
 	(sheet
-		(at 25.4 25.4)
-		(size 50.8 50.8)
+		(at 40.64 101.6)
+		(size 66.04 45.72)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
@@ -22,18 +27,19 @@
 		)
 		(uuid "23fb8cb3-d216-43bc-949d-0f2d5132ce05")
 		(property "Sheetname" "Power"
-			(at 25.4 24.6884 0)
+			(at 40.64 100.8884 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
-					(size 1.27 1.27)
+					(size 2 2)
+					(bold yes)
 				)
 				(justify left bottom)
 			)
 		)
 		(property "Sheetfile" "power.kicad_sch"
-			(at 25.4 76.7846 0)
+			(at 40.64 147.9046 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -52,8 +58,8 @@
 		)
 	)
 	(sheet
-		(at 88.9 25.4)
-		(size 50.8 50.8)
+		(at 152.4 101.6)
+		(size 66.04 45.72)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
@@ -68,18 +74,19 @@
 		)
 		(uuid "2f93e2eb-87df-4c16-8f40-3e58d764c254")
 		(property "Sheetname" "MCU"
-			(at 88.9 24.6884 0)
+			(at 152.4 100.8884 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
-					(size 1.27 1.27)
+					(size 2 2)
+					(bold yes)
 				)
 				(justify left bottom)
 			)
 		)
 		(property "Sheetfile" "mcu.kicad_sch"
-			(at 88.9 76.7846 0)
+			(at 152.4 147.9046 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -98,8 +105,8 @@
 		)
 	)
 	(sheet
-		(at 215.9 25.4)
-		(size 50.8 50.8)
+		(at 152.4 190.5)
+		(size 66.04 35.56)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
@@ -114,18 +121,19 @@
 		)
 		(uuid "9b6b3008-7381-43e3-bcbf-c7bf2652a797")
 		(property "Sheetname" "Connectors"
-			(at 215.9 24.6884 0)
+			(at 152.4 189.7884 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
-					(size 1.27 1.27)
+					(size 2 2)
+					(bold yes)
 				)
 				(justify left bottom)
 			)
 		)
 		(property "Sheetfile" "connectors.kicad_sch"
-			(at 215.9 76.7846 0)
+			(at 152.4 226.6446 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -144,8 +152,8 @@
 		)
 	)
 	(sheet
-		(at 152.4 25.4)
-		(size 50.8 50.8)
+		(at 264.16 101.6)
+		(size 66.04 45.72)
 		(exclude_from_sim no)
 		(in_bom yes)
 		(on_board yes)
@@ -160,18 +168,19 @@
 		)
 		(uuid "e721ae07-c1bc-490b-be5d-86351555c6df")
 		(property "Sheetname" "GNSS"
-			(at 152.4 24.6884 0)
+			(at 264.16 100.8884 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
 				(font
-					(size 1.27 1.27)
+					(size 2 2)
+					(bold yes)
 				)
 				(justify left bottom)
 			)
 		)
 		(property "Sheetfile" "gnss.kicad_sch"
-			(at 152.4 76.7846 0)
+			(at 264.16 147.9046 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -188,6 +197,328 @@
 				)
 			)
 		)
+	)
+	(text "ESP32-DIY-GPS"
+		(exclude_from_sim no)
+		(at 25.4 25.4 0)
+		(effects
+			(font
+				(size 3.5 3.5)
+				(thickness 0.7)
+				(bold yes)
+			)
+			(justify left bottom)
+		)
+		(uuid "859e355b-a9e8-4f5c-92b5-d953ca9c5535")
+	)
+	(text "GPS receiver board: ESP32-S3 + u-blox NEO-M9N on an 80 x 40 mm 4-layer PCB, powered from a 12 V vehicle supply"
+		(exclude_from_sim no)
+		(at 25.4 32.385 0)
+		(effects
+			(font
+				(size 1.5 1.5)
+			)
+			(justify left bottom)
+		)
+		(uuid "f6ee7b7b-5a8b-4e60-accd-4feba24e016b")
+	)
+	(text "BLOCK DIAGRAM  (sheet 1 of 5 - double-click a block to open its sheet)"
+		(exclude_from_sim no)
+		(at 25.4 60.96 0)
+		(effects
+			(font
+				(size 2 2)
+				(thickness 0.4)
+				(bold yes)
+			)
+			(justify left bottom)
+		)
+		(uuid "a6696d38-0d34-4ac1-b88e-b2db0612fa7c")
+	)
+	(text "12 V input protection (reverse polarity,\nTVS) and TPS54360 buck regulator:\n6-60 V in -> 3.3 V / 1.5 A"
+		(exclude_from_sim no)
+		(at 43.18 106.68 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "bbdc42e9-074f-438c-a3fe-5bc54c240e3f")
+	)
+	(text "ESP32-S3-WROOM-1-N16R2 module:\nreset / boot buttons, decoupling,\nseries resistors on all I/O"
+		(exclude_from_sim no)
+		(at 154.94 106.68 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "e611eec2-7c5b-45b1-b155-8cde43cc0d07")
+	)
+	(text "u-blox NEO-M9N receiver,\nactive-antenna bias feed (U.FL),\nUART, 1PPS and test points"
+		(exclude_from_sim no)
+		(at 266.7 106.68 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "ebfab266-be6c-4eed-afb1-ae599cfa86fd")
+	)
+	(text "USB-C (data only)\nand the 3-pin debug UART header"
+		(exclude_from_sim no)
+		(at 154.94 195.58 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "89360c17-d4c6-4a64-8e69-db0c5560ca3f")
+	)
+	(polyline
+		(pts
+			(xy 20.32 124.46)
+			(xy 40.64 124.46)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "d49a7fed-14a3-4375-b9b3-ad0dcc2182e9")
+	)
+	(polyline
+		(pts
+			(xy 39.116 123.571)
+			(xy 40.64 124.46)
+			(xy 39.116 125.349)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "974158cc-2994-4d45-979d-f4d0c8a24cf6")
+	)
+	(text "12 V vehicle\nsupply (J1)"
+		(exclude_from_sim no)
+		(at 20.32 121.92 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "65447ec4-57da-4773-a133-e69405cf14f9")
+	)
+	(polyline
+		(pts
+			(xy 73.66 101.6)
+			(xy 73.66 83.82)
+			(xy 297.18 83.82)
+			(xy 297.18 101.6)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "c0d976fa-9aaf-4c0b-835c-77317eab5feb")
+	)
+	(polyline
+		(pts
+			(xy 296.291 100.076)
+			(xy 297.18 101.6)
+			(xy 298.069 100.076)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "d988337b-bb64-4575-a77a-8cc965ad18a2")
+	)
+	(polyline
+		(pts
+			(xy 185.42 83.82)
+			(xy 185.42 101.6)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "a124bb08-d3ea-4a30-b649-0298dea4c2d8")
+	)
+	(polyline
+		(pts
+			(xy 184.531 100.076)
+			(xy 185.42 101.6)
+			(xy 186.309 100.076)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "ed046a96-e49f-462a-be52-7d8c6d88ca60")
+	)
+	(text "+3V3  (3.3 V / 1.5 A)"
+		(exclude_from_sim no)
+		(at 76.2 82.55 0)
+		(effects
+			(font
+				(size 1.5 1.5)
+			)
+			(justify left bottom)
+		)
+		(uuid "791ba0c3-bc64-4066-ad10-cb315b046fe6")
+	)
+	(polyline
+		(pts
+			(xy 218.44 124.46)
+			(xy 264.16 124.46)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "52825b79-402e-48fd-8e69-a06441806d1e")
+	)
+	(polyline
+		(pts
+			(xy 262.636 123.571)
+			(xy 264.16 124.46)
+			(xy 262.636 125.349)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "1e14d351-d31e-4125-a082-f2eea4e142ac")
+	)
+	(polyline
+		(pts
+			(xy 219.964 123.571)
+			(xy 218.44 124.46)
+			(xy 219.964 125.349)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "03ad6ef0-7055-45b0-afbe-4e3a76849e16")
+	)
+	(text "GPS_TXD / GPS_RXD (UART1)\nGPS_PPS (time pulse)"
+		(exclude_from_sim no)
+		(at 220.98 115.57 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "6bb2007b-a008-48e3-8d6a-8402c3331b6c")
+	)
+	(polyline
+		(pts
+			(xy 185.42 147.32)
+			(xy 185.42 190.5)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "ab5c6707-4e2b-409b-9dab-3b071de1a57e")
+	)
+	(polyline
+		(pts
+			(xy 184.531 188.976)
+			(xy 185.42 190.5)
+			(xy 186.309 188.976)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "f59adf0d-517a-4135-af31-63125c43eca7")
+	)
+	(polyline
+		(pts
+			(xy 184.531 148.844)
+			(xy 185.42 147.32)
+			(xy 186.309 148.844)
+		)
+		(stroke
+			(width 0.3048)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(uuid "b91e74fa-d35c-4c5a-8f92-6b982180c3cd")
+	)
+	(text "USB_DP / USB_DN (native USB)\nUART0_TX / UART0_RX (debug)"
+		(exclude_from_sim no)
+		(at 187.96 166.37 0)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left bottom)
+		)
+		(uuid "e06cc11a-504e-43b6-aa77-7da1300e74c6")
+	)
+	(text_box "CONVENTIONS\n- Power leaves each sheet through the +12V, +3V3 and GND power symbols; signals through global labels (arrow shape = direction).\n- Every sheet is laid out left to right in numbered blocks, with design and layout notes next to the circuit they describe.\n- Board: 4 layers - F.Cu signals + GND pour, In1 solid GND, In2 +3V3, B.Cu GND pour. Vias tented, never in pads."
+		(exclude_from_sim no)
+		(at 25.4 231.14 0)
+		(size 256.54 17.78)
+		(margins 1.905 1.905 1.905 1.905)
+		(stroke
+			(width 0.1524)
+			(type solid)
+		)
+		(fill
+			(type none)
+		)
+		(effects
+			(font
+				(size 1.27 1.27)
+			)
+			(justify left top)
+		)
+		(uuid "f9f34982-23d4-4677-8ee1-bab9b28bd27b")
 	)
 	(sheet_instances
 		(path "/"
